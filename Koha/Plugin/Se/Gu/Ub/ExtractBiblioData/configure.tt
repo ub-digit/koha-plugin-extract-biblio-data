@@ -1,0 +1,46 @@
+[% INCLUDE 'doc-head-open.inc' %]
+ <title>Koha: Extract Biblio Data: Configuration</title>
+[% INCLUDE 'doc-head-close.inc' %]
+</head>
+<body>
+[% INCLUDE 'header.inc' %]
+[% INCLUDE 'cat-search.inc' %]
+
+<div id="breadcrumbs"><a href="/cgi-bin/koha/mainpage.pl">Home</a> &rsaquo; <a href="/cgi-bin/koha/plugins/plugins-home.pl">Plugins</a> &rsaquo; Extract Biblio Data &rsaquo; Configuration</div>
+
+<div id="doc3">
+    <h3>Koha: Extract Biblio Data: Configuration</h3>
+
+    <form method="get">
+        <!-- Always pass these two parameters so the plugin system knows what to execute! -->
+        <input type="hidden" name="class" value="[% CLASS %]"/>
+        <input type="hidden" name="method" value="[% METHOD %]"/>
+
+        <fieldset class="rows">
+          <legend>Options</legend>
+          <ol>
+          <li>
+              <label for="tablename">Table name:</label>
+              <input id="tablename" type="text" name="tablename" value="[% tablename %]" />
+          </li>
+          <li>
+              <label for="create_on_use">Create table if it does not exist:</label>
+              [% IF create_on_use %]
+                  <input id="create_on_use" type="checkbox" name="create_on_use"" value="1" checked />
+              [% ELSE %]
+                  <input id="create_on_use" type="checkbox" name="create_on_use"" value="1" />
+              [% END %]       
+          </li>
+          <li>
+            <label for="fieldlist">List of fields:</label>
+            <textarea rows="15" id="fieldlist" name="fieldlist">[% fieldlist %]</textarea>
+          </li>
+        </ol>
+        </fieldset>
+        <input type="hidden" name="save" value="1" />
+        <fieldset class="action">
+            <input type="submit" value="Save configuration" />
+        </fieldset>
+    </form>
+
+[% INCLUDE 'intranet-bottom.inc' %]
