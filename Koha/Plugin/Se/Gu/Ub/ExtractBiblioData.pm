@@ -55,13 +55,24 @@ sub after_biblio_action {
   my $tablename = $self->setup();
 
   if(!$tablename) { return; }
+
+  my $dbh = C4::Context->dbh;
+  my $insert_query = build_insert_query($dbh, $tablename);
+  my $delete_query = build_delete_query($dbh, $tablename);
+
   if($action eq "create" || $action eq "modify") {
-    delete_all_for_biblio($tablename, $biblionumber);
-    extract_from_record($tablename, $biblionumber, $fields, $biblio);
+    delete_all_for_biblio($delete_query, $biblionumber);
+    extract_from_record($insert_query, $biblionumber, $fields, $biblio);
   }
   if($action eq "delete") {
-    delete_all_for_biblio($tablename, $biblionumber);
+    delete_all_for_biblio($delete_query, $biblionumber);
   }
+}
+
+sub cronjob_nightly {
+  my ($self) = @_;
+
+  $self->extract_from_all_records();
 }
 
 sub tool {
@@ -81,37 +92,64 @@ sub extract_from_all_records {
 
   if(!$tablename) { return; }
 
+  my $dbh = C4::Context->dbh;
+  my $insert_query = build_insert_query($dbh, $tablename);
+  my $delete_query = build_delete_query($dbh, $tablename);
 
   while(my $biblio = $biblios->next) {
     my $biblionumber = $biblio->biblionumber;
-    delete_all_for_biblio($tablename, $biblionumber);
-    extract_from_record($tablename, $biblionumber, $fields, $biblio);
+    delete_all_for_biblio($delete_query, $biblionumber);
+    extract_from_record($insert_query, $biblionumber, $fields, $biblio);
   }
 }
 
+sub build_insert_query {
+  my ($dbh, $tablename) = @_;
+
+  my $tablename_sql = $dbh->quote_identifier($tablename);
+  my $sth = $dbh->prepare(
+      "INSERT INTO $tablename_sql
+      (biblionumber, pos, label, tag, part, value)
+        VALUES (?,?,?,?,?,?)"
+  );
+
+  return $sth;
+}
+
+sub build_delete_query {
+  my ($dbh, $tablename) = @_;
+
+  my $tablename_sql = $dbh->quote_identifier($tablename);
+  my $sth = $dbh->prepare(
+      "DELETE FROM $tablename_sql WHERE biblionumber = ?"
+  );
+
+  return $sth;
+}
+
 sub extract_from_record {
-  my ($tablename, $biblionumber, $fields, $biblio) = @_;
+  my ($insert_query, $biblionumber, $fields, $biblio) = @_;
   my $record = $biblio->metadata->record;
   foreach my $fieldspec (@$fields) {
     my $field = $fieldspec->{field};
     my $label = $fieldspec->{label};
     if($field->{all} && $field->{type} eq "controlfield") {
-      store_complete_controlfield($tablename, $biblionumber, $label, $field->{tag}, $record);
+      store_complete_controlfield($insert_query, $biblionumber, $label, $field->{tag}, $record);
     }
     if($field->{all} && $field->{type} eq "datafield") {
-      store_complete_datafield($tablename, $biblionumber, $label, $field->{tag}, $record);
+      store_complete_datafield($insert_query, $biblionumber, $label, $field->{tag}, $record);
     }
     if(!$field->{all} && $field->{type} eq "controlfield") {
-      store_partial_controlfield($tablename, $biblionumber, $label, $field->{tag}, $field->{from}, $field->{to}, $record);
+      store_partial_controlfield($insert_query, $biblionumber, $label, $field->{tag}, $field->{from}, $field->{to}, $record);
     }
     if(!$field->{all} && $field->{type} eq "datafield") {
-      store_partial_datafield($tablename, $biblionumber, $label, $field->{tag}, $field->{subfields}, $record);
+      store_partial_datafield($insert_query, $biblionumber, $label, $field->{tag}, $field->{subfields}, $record);
     }
   }
 }
 
 sub store_complete_controlfield {
-  my ($tablename, $biblionumber, $label, $tag, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $record) = @_;
   my $value;
   my $pos;
   if($tag eq "leader") {
@@ -125,11 +163,11 @@ sub store_complete_controlfield {
   }
 
   print STDERR "DEBUG (COMPLETE/CONTROL): $pos: $value\n" if $debug;
-  insert_row($tablename, $biblionumber, $pos, $tag, $label, undef, $value);
+  insert_row($insert_query, $biblionumber, $pos, $tag, $label, undef, $value);
 }
 
 sub store_partial_controlfield {
-  my ($tablename, $biblionumber, $label, $tag, $from, $to, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $from, $to, $record) = @_;
   my $value;
   my $pos;
   if($tag eq "leader") {
@@ -147,11 +185,11 @@ sub store_partial_controlfield {
 
   $value = substr($value, $startindex, $length);
   print STDERR "DEBUG (PARTIAL/CONTROL): $pos: ${tag}, ${from}-${to}, $value\n" if $debug;  
-  insert_row($tablename, $biblionumber, $pos, $label, $tag, "${from}-${to}", $value);
+  insert_row($insert_query, $biblionumber, $pos, $label, $tag, "${from}-${to}", $value);
 }
 
 sub store_complete_datafield {
-  my ($tablename, $biblionumber, $label, $tag, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $record) = @_;
 
   my $pos = 0;
   foreach my $field ($record->fields()) {
@@ -164,13 +202,13 @@ sub store_complete_datafield {
       }
       my $value = join(" ", @subfields);
       print STDERR "DEBUG (COMPLETE/DATA): ${pos}: ${tag}, ${value}\n" if $debug;
-      insert_row($tablename, $biblionumber, $pos, $label, $tag, undef, $value);
+      insert_row($insert_query, $biblionumber, $pos, $label, $tag, undef, $value);
     }
   }
 }
 
 sub store_partial_datafield {
-  my ($tablename, $biblionumber, $label, $tag, $subs, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $subs, $record) = @_;
   my $subs_str = join("", @$subs);
 
   my $pos = 0;
@@ -186,7 +224,7 @@ sub store_partial_datafield {
 
       my $value = join(" ", @subfields);
       print STDERR "DEBUG (PARTIAL/DATA): ${pos}: ${tag}, ${subs_str}, ${value}\n" if $debug;
-      insert_row($tablename, $biblionumber, $pos, $label, $tag, $subs_str, $value);
+      insert_row($insert_query, $biblionumber, $pos, $label, $tag, $subs_str, $value);
     }
   }
 }
@@ -347,27 +385,15 @@ sub setup {
 }
 
 sub insert_row {
-  my ($tablename, $biblionumber, $pos, $label, $tag, $part, $value) = @_;
+  my ($insert_query, $biblionumber, $pos, $label, $tag, $part, $value) = @_;
 
-  my $dbh = C4::Context->dbh;
-  my $tablename_sql = $dbh->quote_identifier($tablename);
-  my $sth = $dbh->prepare(
-      "INSERT INTO $tablename_sql
-      (biblionumber, pos, label, tag, part, value)
-        VALUES (?,?,?,?,?,?)"
-  );
-  $sth->execute($biblionumber, $pos, $label, $tag, $part, $value);
+  $insert_query->execute($biblionumber, $pos, $label, $tag, $part, $value);
 }
 
 sub delete_all_for_biblio {
-  my ($tablename, $biblionumber) = @_;
+  my ($delete_query, $biblionumber) = @_;
 
-  my $dbh = C4::Context->dbh;
-  my $tablename_sql = $dbh->quote_identifier($tablename);
-  my $sth = $dbh->prepare(
-      "DELETE FROM $tablename_sql WHERE biblionumber = ?"
-  );
-  $sth->execute($biblionumber);
+  $delete_query->execute($biblionumber);
 }
 
 sub table_exists {
