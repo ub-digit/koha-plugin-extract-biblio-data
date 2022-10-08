@@ -96,11 +96,23 @@ sub extract_from_all_records {
   my $insert_query = build_insert_query($dbh, $tablename);
   my $delete_query = build_delete_query($dbh, $tablename);
 
+  my $bibcnt = 0;
+
+  $dbh->begin_work;
+
   while(my $biblio = $biblios->next) {
     my $biblionumber = $biblio->biblionumber;
     delete_all_for_biblio($delete_query, $biblionumber);
     extract_from_record($insert_query, $biblionumber, $fields, $biblio);
+    $bibcnt++;
+    if($bibcnt >= 1000) {
+      $dbh->commit;
+      $bibcnt = 0;
+      $dbh->begin_work;
+    }
   }
+
+  $dbh->commit;
 }
 
 sub build_insert_query {
