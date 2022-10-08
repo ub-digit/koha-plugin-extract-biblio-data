@@ -60,6 +60,7 @@ sub after_biblio_action {
   my $insert_query = build_insert_query($dbh, $tablename);
   my $delete_query = build_delete_query($dbh, $tablename);
 
+  $dbh->begin_work;
   if($action eq "create" || $action eq "modify") {
     delete_all_for_biblio($delete_query, $biblionumber);
     extract_from_record($insert_query, $biblionumber, $fields, $biblio);
@@ -67,6 +68,7 @@ sub after_biblio_action {
   if($action eq "delete") {
     delete_all_for_biblio($delete_query, $biblionumber);
   }
+  $dbh->commit;
 }
 
 sub cronjob_nightly {
