@@ -1,5 +1,7 @@
 package Koha::Plugin::Se::Gu::Ub::ExtractBiblioData;
 
+our $debug = 0;
+
 ## It's good practive to use Modern::Perl
 use Modern::Perl;
 
@@ -62,6 +64,31 @@ sub after_biblio_action {
   }
 }
 
+sub tool {
+  my ( $self, $args ) = @_;
+
+  $self->extract_from_all_records();
+  $self->go_home();
+}
+
+sub extract_from_all_records {
+  my ($self) = @_;
+
+  my $biblios = Koha::Biblios->search();
+  my $fieldlist = $self->retrieve_data('fieldlist');
+  my $fields = parse_fieldlist($fieldlist);
+  my $tablename = $self->setup();
+
+  if(!$tablename) { return; }
+
+
+  while(my $biblio = $biblios->next) {
+    my $biblionumber = $biblio->biblionumber;
+    delete_all_for_biblio($tablename, $biblionumber);
+    extract_from_record($tablename, $biblionumber, $fields, $biblio);
+  }
+}
+
 sub extract_from_record {
   my ($tablename, $biblionumber, $fields, $biblio) = @_;
   my $record = $biblio->metadata->record;
@@ -93,10 +120,11 @@ sub store_complete_controlfield {
   } else {
     $pos = int($tag);
     my $field = $record->field($tag);
+    if(!$field) { return; }
     $value = $field->data();
   }
 
-  print STDERR "DEBUG (COMPLETE/CONTROL): $pos: $value\n";
+  print STDERR "DEBUG (COMPLETE/CONTROL): $pos: $value\n" if $debug;
   insert_row($tablename, $biblionumber, $pos, $tag, $label, undef, $value);
 }
 
@@ -110,6 +138,7 @@ sub store_partial_controlfield {
   } else {
     $pos = int($tag);
     my $field = $record->field($tag);
+    if(!$field) { return; }
     $value = $field->data();
   }
 
@@ -117,7 +146,7 @@ sub store_partial_controlfield {
   my $length = $to - $from + 1;
 
   $value = substr($value, $startindex, $length);
-  print STDERR "DEBUG (PARTIAL/CONTROL): $pos: ${tag}, ${from}-${to}, $value\n";  
+  print STDERR "DEBUG (PARTIAL/CONTROL): $pos: ${tag}, ${from}-${to}, $value\n" if $debug;  
   insert_row($tablename, $biblionumber, $pos, $label, $tag, "${from}-${to}", $value);
 }
 
@@ -134,7 +163,7 @@ sub store_complete_datafield {
         push(@subfields, $subfield->[1]);
       }
       my $value = join(" ", @subfields);
-      print STDERR "DEBUG (COMPLETE/DATA): ${pos}: ${tag}, ${value}\n";
+      print STDERR "DEBUG (COMPLETE/DATA): ${pos}: ${tag}, ${value}\n" if $debug;
       insert_row($tablename, $biblionumber, $pos, $label, $tag, undef, $value);
     }
   }
@@ -156,7 +185,7 @@ sub store_partial_datafield {
       }
 
       my $value = join(" ", @subfields);
-      print STDERR "DEBUG (PARTIAL/DATA): ${pos}: ${tag}, ${subs_str}, ${value}\n";
+      print STDERR "DEBUG (PARTIAL/DATA): ${pos}: ${tag}, ${subs_str}, ${value}\n" if $debug;
       insert_row($tablename, $biblionumber, $pos, $label, $tag, $subs_str, $value);
     }
   }
