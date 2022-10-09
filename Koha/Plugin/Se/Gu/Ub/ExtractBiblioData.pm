@@ -77,12 +77,12 @@ sub cronjob_nightly {
   $self->extract_from_all_records();
 }
 
-sub tool {
-  my ( $self, $args ) = @_;
-
-  $self->extract_from_all_records();
-  $self->go_home();
-}
+# sub tool {
+#   my ( $self, $args ) = @_;
+# 
+#    $self->extract_from_all_records();
+#   $self->go_home();
+# }
 
 sub extract_from_all_records {
   my ($self) = @_;
