@@ -238,7 +238,9 @@ sub store_partial_datafield {
 
       my $value = join(" ", @subfields);
       print STDERR "DEBUG (PARTIAL/DATA): ${pos}: ${tag}, ${subs_str}, ${value}\n" if $debug;
-      insert_row($insert_query, $biblionumber, $pos, $label, $tag, $subs_str, $value);
+      if($value ne "") {
+        insert_row($insert_query, $biblionumber, $pos, $label, $tag, $subs_str, $value);
+      }
     }
   }
 }
