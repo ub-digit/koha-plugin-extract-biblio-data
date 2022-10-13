@@ -101,20 +101,30 @@ sub extract_from_all_records {
   my $bibcnt = 0;
 
   $dbh->begin_work;
+  my $rows = [];
+  my $biblio_ids = [];
 
   while(my $biblio = $biblios->next) {
     my $biblionumber = $biblio->biblionumber;
-    delete_all_for_biblio($delete_query, $biblionumber);
-    extract_from_record($insert_query, $biblionumber, $fields, $biblio);
+    push(@{$biblio_ids}, $biblionumber);
+    # delete_all_for_biblio($delete_query, $biblionumber);
+    extract_from_record($insert_query, $biblionumber, $fields, $biblio, $rows);
     $bibcnt++;
     if($bibcnt >= 1000) {
+      delete_multiple_rows($dbh, $tablename, $biblio_ids);
+      insert_multiple_rows($dbh, $tablename, $rows);
+      $biblio_ids = [];
+      $rows = [];
       $dbh->commit;
       $bibcnt = 0;
       $dbh->begin_work;
     }
   }
-
-  $dbh->commit;
+  if(@{$rows}) {
+    delete_multiple_rows($dbh, $tablename, $biblio_ids);
+    insert_multiple_rows($dbh, $tablename, $rows);
+    $dbh->commit;
+  }
 }
 
 sub build_insert_query {
@@ -142,28 +152,28 @@ sub build_delete_query {
 }
 
 sub extract_from_record {
-  my ($insert_query, $biblionumber, $fields, $biblio) = @_;
+  my ($insert_query, $biblionumber, $fields, $biblio, $rows) = @_;
   my $record = $biblio->metadata->record;
   foreach my $fieldspec (@$fields) {
     my $field = $fieldspec->{field};
     my $label = $fieldspec->{label};
     if($field->{all} && $field->{type} eq "controlfield") {
-      store_complete_controlfield($insert_query, $biblionumber, $label, $field->{tag}, $record);
+      store_complete_controlfield($insert_query, $biblionumber, $label, $field->{tag}, $record, $rows);
     }
     if($field->{all} && $field->{type} eq "datafield") {
-      store_complete_datafield($insert_query, $biblionumber, $label, $field->{tag}, $record);
+      store_complete_datafield($insert_query, $biblionumber, $label, $field->{tag}, $record, $rows);
     }
     if(!$field->{all} && $field->{type} eq "controlfield") {
-      store_partial_controlfield($insert_query, $biblionumber, $label, $field->{tag}, $field->{from}, $field->{to}, $record);
+      store_partial_controlfield($insert_query, $biblionumber, $label, $field->{tag}, $field->{from}, $field->{to}, $record, $rows);
     }
     if(!$field->{all} && $field->{type} eq "datafield") {
-      store_partial_datafield($insert_query, $biblionumber, $label, $field->{tag}, $field->{subfields}, $record);
+      store_partial_datafield($insert_query, $biblionumber, $label, $field->{tag}, $field->{subfields}, $record, $rows);
     }
   }
 }
 
 sub store_complete_controlfield {
-  my ($insert_query, $biblionumber, $label, $tag, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $record, $rows) = @_;
   my $value;
   my $pos;
   if($tag eq "leader") {
@@ -177,11 +187,11 @@ sub store_complete_controlfield {
   }
 
   print STDERR "DEBUG (COMPLETE/CONTROL): $pos: $value\n" if $debug;
-  insert_row($insert_query, $biblionumber, $pos, $tag, $label, undef, $value);
+  insert_row($insert_query, $biblionumber, $pos, $tag, $label, undef, $value, $rows);
 }
 
 sub store_partial_controlfield {
-  my ($insert_query, $biblionumber, $label, $tag, $from, $to, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $from, $to, $record, $rows) = @_;
   my $value;
   my $pos;
   if($tag eq "leader") {
@@ -199,11 +209,11 @@ sub store_partial_controlfield {
 
   $value = substr($value, $startindex, $length);
   print STDERR "DEBUG (PARTIAL/CONTROL): $pos: ${tag}, ${from}-${to}, $value\n" if $debug;  
-  insert_row($insert_query, $biblionumber, $pos, $label, $tag, "${from}-${to}", $value);
+  insert_row($insert_query, $biblionumber, $pos, $label, $tag, "${from}-${to}", $value, $rows);
 }
 
 sub store_complete_datafield {
-  my ($insert_query, $biblionumber, $label, $tag, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $record, $rows) = @_;
 
   my $pos = 0;
   foreach my $field ($record->fields()) {
@@ -216,13 +226,13 @@ sub store_complete_datafield {
       }
       my $value = join(" ", @subfields);
       print STDERR "DEBUG (COMPLETE/DATA): ${pos}: ${tag}, ${value}\n" if $debug;
-      insert_row($insert_query, $biblionumber, $pos, $label, $tag, undef, $value);
+      insert_row($insert_query, $biblionumber, $pos, $label, $tag, undef, $value, $rows);
     }
   }
 }
 
 sub store_partial_datafield {
-  my ($insert_query, $biblionumber, $label, $tag, $subs, $record) = @_;
+  my ($insert_query, $biblionumber, $label, $tag, $subs, $record, $rows) = @_;
   my $subs_str = join("", @$subs);
 
   my $pos = 0;
@@ -239,7 +249,7 @@ sub store_partial_datafield {
       my $value = join(" ", @subfields);
       print STDERR "DEBUG (PARTIAL/DATA): ${pos}: ${tag}, ${subs_str}, ${value}\n" if $debug;
       if($value ne "") {
-        insert_row($insert_query, $biblionumber, $pos, $label, $tag, $subs_str, $value);
+        insert_row($insert_query, $biblionumber, $pos, $label, $tag, $subs_str, $value, $rows);
       }
     }
   }
@@ -401,9 +411,36 @@ sub setup {
 }
 
 sub insert_row {
-  my ($insert_query, $biblionumber, $pos, $label, $tag, $part, $value) = @_;
+  my ($insert_query, $biblionumber, $pos, $label, $tag, $part, $value, $rows) = @_;
+  if(defined($rows)) {
+    push(@{$rows}, [$biblionumber, $pos, $label, $tag, $part, $value]);
+  } else {
+    $insert_query->execute($biblionumber, $pos, $label, $tag, $part, $value);
+  }
+}
 
-  $insert_query->execute($biblionumber, $pos, $label, $tag, $part, $value);
+sub insert_multiple_rows {
+  my ($dbh, $tablename, $rows) = @_;
+
+  my $tablename_sql = $dbh->quote_identifier($tablename);
+  my $base_sql = "INSERT INTO $tablename_sql (biblionumber, pos, label, tag, part, value) VALUES ";
+  my $sql_values = join(',', ('(?,?,?,?,?,?)') x scalar(@{$rows}));
+
+  my @flattened = map {@$_} @$rows;
+
+  my $sth = $dbh->prepare($base_sql . $sql_values);
+  $sth->execute(@flattened);
+}
+
+sub delete_multiple_rows {
+  my ($dbh, $tablename, $biblio_ids) = @_;
+
+  my $tablename_sql = $dbh->quote_identifier($tablename);
+  my $base_sql = "DELETE FROM $tablename_sql WHERE biblionumber IN ";
+  my $sql_values = join(',', @{$biblio_ids});
+
+  my $sth = $dbh->prepare($base_sql . "(" . $sql_values . ")");
+  $sth->execute();
 }
 
 sub delete_all_for_biblio {
