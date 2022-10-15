@@ -10,6 +10,7 @@ use base qw(Koha::Plugins::Base);
 use Data::Dumper;
 use MARC::Record;
 use C4::Context;
+use Try::Tiny qw(try catch);
 
 ## Here we set our plugin version
 our $VERSION = "1.0.0";
@@ -153,7 +154,17 @@ sub build_delete_query {
 
 sub extract_from_record {
   my ($insert_query, $biblionumber, $fields, $biblio, $rows) = @_;
-  my $record = $biblio->metadata->record;
+  my $record;
+  my $record_ok = 1;
+  try {
+    $record = $biblio->metadata->record;
+  } catch {
+    open(LOG, ">>/tmp/broken-biblios.log");
+    print LOG "$biblionumber\n";
+    close(LOG);
+    $record_ok = 0;
+  };
+  return unless($record_ok);
   foreach my $fieldspec (@$fields) {
     my $field = $fieldspec->{field};
     my $label = $fieldspec->{label};
