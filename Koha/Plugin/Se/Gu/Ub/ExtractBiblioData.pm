@@ -503,6 +503,18 @@ sub create_table_if_missing {
     )
 END_SQL
     $sth->execute();
+    my $columnname = "biblionumber";
+    my $indexname_sql = $dbh->quote_identifier("idx_${tablename}_${columnname}");
+    $sth = $dbh->prepare("CREATE INDEX $indexname_sql ON ${tablename_sql}(${columnname})");
+    $sth->execute();
+    $columnname = "pos";
+    $indexname_sql = $dbh->quote_identifier("idx_${tablename}_${columnname}");
+    $sth = $dbh->prepare("CREATE INDEX $indexname_sql ON ${tablename_sql}(${columnname})");
+    $sth->execute();
+    $columnname = "label";
+    $indexname_sql = $dbh->quote_identifier("idx_${tablename}_${columnname}");
+    $sth = $dbh->prepare("CREATE INDEX $indexname_sql ON ${tablename_sql}(${columnname})");
+    $sth->execute();
 }
 
 1;
