@@ -10,6 +10,8 @@ use base qw(Koha::Plugins::Base);
 use Data::Dumper;
 use MARC::Record;
 use C4::Context;
+use Try::Tiny qw(try catch);
+use Koha::Plugin::Se::Gu::Ub::ExtractBiblioData::BackgroundJob qw(new);
 
 ## Here we set our plugin version
 our $VERSION = "1.0.0";
@@ -23,9 +25,25 @@ our $metadata = {
     minimum_version => '22.05',
     maximum_version => undef,
     version         => $VERSION,
+    namespace       => 'gub',
     description     => 'This plugin extracts biblio MARC fields/subfields into a separate table '
       . 'to be able to use detailed biblio data in reports.',
 };
+
+sub background_tasks {
+  print STDERR Dumper(["DEBUG", "background_tasks", "hook"]);
+  return {
+    "extract_biblio_data" => 'Koha::Plugin::Se::Gu::Ub::ExtractBiblioData::BackgroundJob'
+  }
+}
+
+sub template_includes {
+  my ($self) = @_;
+
+  return [
+    $self->mbf_dir()
+  ];
+}
 
 sub new {
     my ( $class, $args ) = @_;
@@ -77,12 +95,13 @@ sub cronjob_nightly {
   $self->extract_from_all_records();
 }
 
-# sub tool {
-#   my ( $self, $args ) = @_;
-# 
-#    $self->extract_from_all_records();
-#   $self->go_home();
-# }
+sub tool {
+  my ( $self, $args ) = @_;
+
+  # $self->extract_from_all_records();
+  Koha::Plugin::Se::Gu::Ub::ExtractBiblioData::BackgroundJob->new->enqueue({"debug" => "9876"});
+  $self->go_home();
+}
 
 sub extract_from_all_records {
   my ($self) = @_;
